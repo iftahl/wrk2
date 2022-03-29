@@ -1,5 +1,5 @@
-CFLAGS  := -std=c99 -Wall -O2 -D_REENTRANT
-LIBS    := -lpthread -lm -lcrypto -lssl
+CFLAGS  := -std=c99 -Wall -O2 -D_REENTRANT -I /auto/mtrswgwork/iftahl/openssl/include
+LIBS    := -L/auto/mtrswgwork/iftahl/openssl/lib -lpthread -lm -lcrypto -lssl
 
 TARGET  := $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
