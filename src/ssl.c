@@ -29,6 +29,7 @@ SSL_CTX *ssl_init() {
     SSL_load_error_strings();
     SSL_library_init();
     OpenSSL_add_all_algorithms();
+//    OPENSSL_init_crypto();
 
     if ((locks = calloc(CRYPTO_num_locks(), sizeof(pthread_mutex_t)))) {
         for (int i = 0; i < CRYPTO_num_locks(); i++) {
@@ -42,7 +43,7 @@ SSL_CTX *ssl_init() {
         (void)ssl_lock;
         (void)ssl_id;
 
-        if ((ctx = SSL_CTX_new(SSLv23_client_method()))) {
+        if ((ctx = SSL_CTX_new(TLS_client_method()))) {
             SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_verify_depth(ctx, 0);
             SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
@@ -50,6 +51,7 @@ SSL_CTX *ssl_init() {
         }
     }
 
+    printf("Using %s\n", OPENSSL_VERSION_TEXT);
     return ctx;
 }
 
