@@ -38,9 +38,13 @@ static struct config {
     bool     record_all_responses;
     bool     warmup;
     bool     rate_by_thread;
+    bool     cipher_per_conn;
+    bool     skip_cipher_print;
     char    *host;
     char    *script;
     char    *local_ip;
+    char    *tls_12_ciphers;
+    char    *tls_13_ciphers;
     SSL_CTX *ctx;
 } cfg;
 
@@ -65,6 +69,8 @@ static volatile sig_atomic_t stop = 0;
 
 // XXX This is a hack not to pass parameter to the script module.
 char *g_local_ip = NULL;
+char **g_ciphers = NULL;
+int num_of_ciphers;
 
 int g_ready_threads = 0;
 static volatile sig_atomic_t g_is_ready = 0;
@@ -99,6 +105,15 @@ static void usage() {
            "    -r  --rate_per_thread  Use rate limit per thread  \n"
            "                           instead of per connection. \n"
            "                           Might help to reduce traffic bursts\n"
+           "    --tls_12               Specify TLS v1.2 ciphers   \n"
+           "                           separated by a colon       \n"
+           "    --tls_13               Specify TLS v1.3 ciphers   \n"
+           "                           separated by a colon       \n"
+           "    --cipher_per_conn      Each connection will be able\n"
+           "                           to connect using a single cipher.\n"
+           "                           Cipher is chosen by round-robin\n"
+           "                           over supported ciphers     \n"
+           "    --skip_cipher_print    Don't print supported openssl ciphers\n"
            "                                                      \n"
            "                                                      \n"
            "  Numeric arguments may include a SI unit (1k, 1M, 1G)\n"
@@ -144,6 +159,27 @@ int main(int argc, char **argv) {
         sock.read     = ssl_read;
         sock.write    = ssl_write;
         sock.readable = ssl_readable;
+
+        if (cfg.tls_12_ciphers) {
+            char *tls_tokens = strdup(cfg.tls_12_ciphers);
+            SSL_CTX_set_cipher_list(cfg.ctx, tls_tokens);
+        }
+
+        if (cfg.tls_13_ciphers) {
+            char *tls_tokens = strdup(cfg.tls_13_ciphers);
+            SSL_CTX_set_ciphersuites(cfg.ctx, tls_tokens);
+        }
+
+        STACK_OF(SSL_CIPHER) *sk = SSL_CTX_get_ciphers(cfg.ctx);
+        num_of_ciphers = sk_SSL_CIPHER_num(sk);
+        g_ciphers = malloc(num_of_ciphers * sizeof(char *));
+        if (!cfg.skip_cipher_print)
+            printf("List of supported ciphers:\n");
+        for (int i = 0; i < num_of_ciphers; i++) {
+            g_ciphers[i] = strdup(SSL_CIPHER_get_name(sk_SSL_CIPHER_value(sk, i)));
+            if (!cfg.skip_cipher_print)
+                printf("cipher %d: %s\n", i, g_ciphers[i]);
+        }
     }
 	
     cfg.host = host;
@@ -374,6 +410,18 @@ void *thread_main(void *arg) {
     for (uint64_t i = 0; i < thread->connections; i++, c++) {
         c->thread     = thread;
         c->ssl        = cfg.ctx ? SSL_new(cfg.ctx) : NULL;
+        if (cfg.cipher_per_conn) {
+            // set specific cipher for each connection
+            // using round-robin on cipher list
+            char *cipher = g_ciphers[i % num_of_ciphers];
+            if (strstr(cipher, "TLS") != NULL) {
+                SSL_set_ciphersuites(c->ssl, cipher);
+                SSL_set_cipher_list(c->ssl, "");
+            } else {
+                SSL_set_ciphersuites(c->ssl, "");
+                SSL_set_cipher_list(c->ssl, cipher);
+            }
+        }
         c->request    = request;
         c->length     = length;
         c->rate_handler.throughput = throughput;
@@ -943,6 +991,10 @@ static struct option longopts[] = {
     { "rate",           required_argument, NULL, 'R' },
     { "warmup",         no_argument,       NULL, 'W' },
     { "rate_per_thread",no_argument,       NULL, 'r' },
+    { "tls_12",         required_argument, NULL, 'x' },
+    { "tls_13",         required_argument, NULL, 'X' },
+    { "cipher_per_conn",no_argument,       NULL, 'Z' },
+    { "skip_cipher_print",no_argument,     NULL, 'z' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -1001,6 +1053,18 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 break;
             case 'r':
                 cfg->rate_by_thread = true;
+                break;
+            case 'x':
+                cfg->tls_12_ciphers = optarg;
+                break;
+            case 'X':
+                cfg->tls_13_ciphers = optarg;
+                break;
+            case 'Z':
+                cfg->cipher_per_conn = true;
+                break;
+            case 'z':
+                cfg->skip_cipher_print = true;
                 break;
             case 'h':
             case '?':
