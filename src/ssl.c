@@ -50,6 +50,7 @@ SSL_CTX *ssl_init() {
         }
     }
 
+    printf("Using %s\n", OPENSSL_VERSION_TEXT);
     return ctx;
 }
 

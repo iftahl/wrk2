@@ -41,6 +41,8 @@ static struct config {
     char    *host;
     char    *script;
     char    *local_ip;
+    char    *tls_12_ciphers;
+    char    *tls_13_ciphers;
     SSL_CTX *ctx;
 } cfg;
 
@@ -144,6 +146,22 @@ int main(int argc, char **argv) {
         sock.read     = ssl_read;
         sock.write    = ssl_write;
         sock.readable = ssl_readable;
+
+        if (cfg.tls_12_ciphers) {
+            char *tls_tokens = strdup(cfg.tls_12_ciphers);
+            SSL_CTX_set_cipher_list(cfg.ctx, tls_tokens);
+        }
+
+        if (cfg.tls_13_ciphers) {
+            char *tls_tokens = strdup(cfg.tls_13_ciphers);
+            SSL_CTX_set_ciphersuites(cfg.ctx, tls_tokens);
+        }
+
+        STACK_OF(SSL_CIPHER) *sk = SSL_CTX_get_ciphers(cfg.ctx);
+        printf("List of supported ciphers:\n");
+        for (int i = 0; i < sk_SSL_CIPHER_num(sk); i++) {
+            printf("cipher %d: %s\n", i, SSL_CIPHER_get_name(sk_SSL_CIPHER_value(sk, i)));
+        }
     }
 	
     cfg.host = host;
@@ -943,6 +961,8 @@ static struct option longopts[] = {
     { "rate",           required_argument, NULL, 'R' },
     { "warmup",         no_argument,       NULL, 'W' },
     { "rate_per_thread",no_argument,       NULL, 'r' },
+    { "tls_12",         required_argument, NULL, 'x' },
+    { "tls_13",         required_argument, NULL, 'X' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -1001,6 +1021,12 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 break;
             case 'r':
                 cfg->rate_by_thread = true;
+                break;
+            case 'x':
+                cfg->tls_12_ciphers = optarg;
+                break;
+            case 'X':
+                cfg->tls_13_ciphers = optarg;
                 break;
             case 'h':
             case '?':
